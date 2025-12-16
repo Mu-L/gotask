@@ -38,12 +38,25 @@ type EventLoop struct {
 	children []ITask
 	addSub   Singleton[chan any]
 	running  atomic.Bool
+	// bufferSize allows configuring the channel capacity; zero uses the default.
+	bufferSize int
 }
 
 func (e *EventLoop) getInput() chan any {
+	size := e.bufferSize
+	if size <= 0 {
+		size = DefaultEventLoopBufferSize
+	}
 	return e.addSub.Get(func() chan any {
-		return make(chan any, 256)
+		return make(chan any, size)
 	})
+}
+
+// SetBufferSize customizes the event loop channel capacity; call before use.
+func (e *EventLoop) SetBufferSize(size int) {
+	if size > 0 {
+		e.bufferSize = size
+	}
 }
 
 func (e *EventLoop) active(mt *Job) {
