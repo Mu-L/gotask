@@ -4,7 +4,6 @@ import (
 	"errors"
 	"reflect"
 	"runtime/debug"
-	"slices"
 	"sync"
 	"sync/atomic"
 )
@@ -40,6 +39,25 @@ type EventLoop struct {
 	running  atomic.Bool
 	// bufferSize allows configuring the channel capacity; zero uses the default.
 	bufferSize int
+}
+
+const eventLoopBaseCases = 1
+
+func (e *EventLoop) removeChildCase(chosen int) {
+	// chosen: index in e.cases; child index = chosen - eventLoopBaseCases
+	childIndex := chosen - eventLoopBaseCases
+	lastCaseIndex := len(e.cases) - 1
+	lastChildIndex := len(e.children) - 1
+	if childIndex < 0 || lastChildIndex < 0 {
+		return
+	}
+	// swap-delete (order not preserved)
+	if chosen != lastCaseIndex {
+		e.cases[chosen] = e.cases[lastCaseIndex]
+		e.children[childIndex] = e.children[lastChildIndex]
+	}
+	e.cases = e.cases[:lastCaseIndex]
+	e.children = e.children[:lastChildIndex]
 }
 
 func (e *EventLoop) getInput() chan any {
@@ -142,7 +160,7 @@ func (e *EventLoop) run(mt *Job) {
 				}
 			}
 		} else {
-			taskIndex := chosen - 1
+			taskIndex := chosen - eventLoopBaseCases
 			child := e.children[taskIndex]
 			mt.blocked = child
 			switch tt := mt.blocked.(type) {
@@ -150,8 +168,7 @@ func (e *EventLoop) run(mt *Job) {
 				if tt.IsStopped() {
 					mt.onChildDispose(child)
 					mt.removeChild(child)
-					e.children = slices.Delete(e.children, taskIndex, taskIndex+1)
-					e.cases = slices.Delete(e.cases, chosen, chosen+1)
+					e.removeChildCase(chosen)
 				} else {
 					tt.Tick(rev.Interface())
 				}
@@ -165,8 +182,7 @@ func (e *EventLoop) run(mt *Job) {
 						}
 					}
 					mt.removeChild(child)
-					e.children = slices.Delete(e.children, taskIndex, taskIndex+1)
-					e.cases = slices.Delete(e.cases, chosen, chosen+1)
+					e.removeChildCase(chosen)
 				}
 			}
 		}
